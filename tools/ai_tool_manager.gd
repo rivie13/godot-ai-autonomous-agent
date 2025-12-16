@@ -32,16 +32,33 @@ Available Tools:
    - Example: {"name": "read_file", "args": {"path": "res://scripts/player.gd"}}
 
 3. write_file(path: string, content: string)
-   - Writes content to a file. Creates the file if it doesn't exist.
+   - Writes content to a file. Creates the file AND parent directories if they don't exist.
    - WARNING: This overwrites the entire file.
-   - Example: {"name": "write_file", "args": {"path": "res://readme.txt", "content": "Hello World"}}
+   - Example: {"name": "write_file", "args": {"path": "res://new_folder/readme.txt", "content": "Hello World"}}
 
-4. remove_file(path: string)
+4. make_dir(path: string)
+   - Creates a directory (and parent directories) if they don't exist.
+   - Example: {"name": "make_dir", "args": {"path": "res://new_folder/sub_folder"}}
+
+5. remove_dir(path: string)
+   - Deletes a directory AND ALL ITS CONTENTS recursively.
+   - EXTREME CAUTION: This is irreversible.
+   - Example: {"name": "remove_dir", "args": {"path": "res://temp_folder"}}
+
+6. move_file(source: string, destination: string)
+   - Moves or renames a file.
+   - Example: {"name": "move_file", "args": {"source": "res://test.gd", "destination": "res://scripts/test.gd"}}
+
+7. move_dir(source: string, destination: string)
+   - Moves or renames a directory.
+   - Example: {"name": "move_dir", "args": {"source": "res://folder", "destination": "res://new_folder"}}
+
+8. remove_file(path: string)
    - Deletes a file PERMANENTLY.
    - Use with extreme caution. confirming the path first.
    - Example: {"name": "remove_file", "args": {"path": "res://temp.txt"}}
 
-5. remove_files(paths: array)
+6. remove_files(paths: array)
    - Deletes multiple files PERMANENTLY.
    - Use with extreme caution. confirming the path first.
    - Example: {"name": "remove_files", "args": {"paths": ["res://temp.txt", "res://temp2.txt"]}}
@@ -92,6 +109,14 @@ func _execute(name: String, args: Dictionary) -> String:
 			return _read_file(args.get("path", ""))
 		"write_file":
 			return _write_file(args.get("path", ""), args.get("content", ""))
+		"make_dir":
+			return _make_dir(args.get("path", ""))
+		"remove_dir":
+			return _remove_dir(args.get("path", ""))
+		"move_file":
+			return _move_file(args.get("source", ""), args.get("destination", ""))
+		"move_dir":
+			return _move_dir(args.get("source", ""), args.get("destination", ""))
 		"remove_file":
 			return _remove_file(args.get("path", ""))
 		"remove_files":
@@ -100,6 +125,99 @@ func _execute(name: String, args: Dictionary) -> String:
 			return _get_errors()
 		_:
 			return "Error: Unknown tool '%s'." % name
+
+func _move_file(source: String, destination: String) -> String:
+	if not FileAccess.file_exists(source):
+		return "Error: Source file '%s' does not exist." % source
+		
+	# Ensure destination directory exists
+	var dir_path = destination.get_base_dir()
+	if not DirAccess.dir_exists_absolute(dir_path):
+		var err = DirAccess.make_dir_recursive_absolute(dir_path)
+		if err != OK:
+			return "Error: Could not create destination directory '%s'. Error code: %d" % [dir_path, err]
+
+	var err = DirAccess.rename_absolute(source, destination)
+	if err != OK:
+		return "Error: Failed to move file from '%s' to '%s'. Error code: %d" % [source, destination, err]
+		
+	if _plugin:
+		_plugin.get_editor_interface().get_resource_filesystem().scan()
+		
+	return "Success: Moved '%s' to '%s'." % [source, destination]
+
+func _move_dir(source: String, destination: String) -> String:
+	if not DirAccess.dir_exists_absolute(source):
+		return "Error: Source directory '%s' does not exist." % source
+		
+	if DirAccess.dir_exists_absolute(destination):
+		return "Error: Destination directory '%s' already exists." % destination
+		
+	# Ensure parent of destination directory exists
+	var parent_dir = destination.get_base_dir()
+	if not DirAccess.dir_exists_absolute(parent_dir):
+		var err = DirAccess.make_dir_recursive_absolute(parent_dir)
+		if err != OK:
+			return "Error: Could not create parent directory '%s'. Error code: %d" % [parent_dir, err]
+
+	var err = DirAccess.rename_absolute(source, destination)
+	if err != OK:
+		return "Error: Failed to move directory from '%s' to '%s'. Error code: %d" % [source, destination, err]
+		
+	if _plugin:
+		_plugin.get_editor_interface().get_resource_filesystem().scan()
+		
+	return "Success: Moved directory '%s' to '%s'." % [source, destination]
+
+func _make_dir(path: String) -> String:
+	if DirAccess.dir_exists_absolute(path):
+		return "Success: Directory '%s' already exists." % path
+		
+	var err = DirAccess.make_dir_recursive_absolute(path)
+	if err != OK:
+		return "Error: Could not create directory '%s'. Error code: %d" % [path, err]
+		
+	if _plugin:
+		_plugin.get_editor_interface().get_resource_filesystem().scan()
+		
+	return "Success: Directory '%s' created." % path
+
+func _remove_dir(path: String) -> String:
+	if path == "res://" or path == "res:/" or path == "res:":
+		return "Error: Cannot delete project root!"
+		
+	if not DirAccess.dir_exists_absolute(path):
+		return "Error: Directory '%s' not found." % path
+
+	# Recursive delete
+	var err = _delete_recursive(path)
+	
+	if _plugin:
+		_plugin.get_editor_interface().get_resource_filesystem().scan()
+	
+	if err == OK:
+		return "Success: Directory '%s' and all contents deleted." % path
+	else:
+		return "Error: Failed to delete directory '%s'. Error code: %d" % [path, err]
+
+func _delete_recursive(path: String) -> int:
+	var dir = DirAccess.open(path)
+	if not dir: return ERR_CANT_OPEN
+	
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	while file_name != "":
+		if file_name != "." and file_name != "..":
+			var full_path = path + "/" + file_name
+			if dir.current_is_dir():
+				var err = _delete_recursive(full_path)
+				if err != OK: return err
+			else:
+				var err = dir.remove(file_name)
+				if err != OK: return err
+		file_name = dir.get_next()
+		
+	return DirAccess.remove_absolute(path)
 
 func _list_dir(path: String) -> String:
 	var files: Array[String] = []
@@ -151,6 +269,13 @@ func initialize(plugin: EditorPlugin) -> void:
 	_plugin = plugin
 
 func _write_file(path: String, content: String) -> String:
+	# Ensure directory exists
+	var dir_path = path.get_base_dir()
+	if not DirAccess.dir_exists_absolute(dir_path):
+		var err = DirAccess.make_dir_recursive_absolute(dir_path)
+		if err != OK:
+			return "Error: Could not create directory '%s'. Error code: %d" % [dir_path, err]
+
 	var file = FileAccess.open(path, FileAccess.WRITE)
 	if not file:
 		return "Error: Could not create/open file '%s' for writing." % path
@@ -430,4 +555,3 @@ func _scrape_rtl_error(rtl: RichTextLabel, source: String, start_offset: int) ->
 		return "[No specific errors found in new logs for %s]" % source
 			
 	return "From %s LOG:\n%s" % [source, "\n".join(unique_lines)]
-

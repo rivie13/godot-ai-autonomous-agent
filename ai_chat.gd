@@ -22,12 +22,12 @@ const SAVE_PATH := "user://ai_assistant_hub/saved_chats/"
 @onready var status_button: Button = %StatusButton
 
 @onready var model_options_btn: OptionButton = %ModelOptionsBtn
+@onready var max_steps_spin_box: SpinBox = %MaxStepsSpinBox
 
 @onready var api_label: Label = %APILabel
 @onready var save_check_button: CheckButton = %SaveCheckButton
 
 const TOOL_MANAGER = preload("res://addons/ai_autonomous_agent/tools/ai_tool_manager.gd")
-const MAX_AUTONOMOUS_LOOPS := 5
 
 var _plugin: AIHubPlugin
 var _bot_name: String
@@ -108,6 +108,7 @@ func initialize(plugin: AIHubPlugin, assistant_settings: AIAssistantResource, bo
 	if _assistant_settings: # We need to check this, otherwise this is called when editing the plugin
 		_load_api(llm_provider)
 		# Temperature UI removed
+		max_steps_spin_box.value = _assistant_settings.max_autonomous_steps
 
 		
 		if new_conversation:
@@ -301,7 +302,7 @@ func _on_http_request_completed(result: int, response_code: int, headers: Packed
 			_bot_answer_handler.handle(text_answer)
 			
 			if _tool_manager.contains_tool_call(text_answer):
-				if _autonomous_loop_count < MAX_AUTONOMOUS_LOOPS:
+				if _autonomous_loop_count < _assistant_settings.max_autonomous_steps:
 					_autonomous_loop_count += 1
 					# Keep thinking state
 					_is_thinking = true
@@ -324,7 +325,7 @@ func _on_http_request_completed(result: int, response_code: int, headers: Packed
 						_add_to_chat("Something went wrong triggering the autonomous step.", Caller.System)
 				else:
 					_is_thinking = false
-					_add_to_chat("Autonomous loop limit reached.", Caller.System)
+					_add_to_chat("The agent performed the maximum number of steps defined. Please confirm if you want to continue.", Caller.System)
 					_autonomous_loop_count = 0
 			else:
 				# No tool call, finished
@@ -539,7 +540,7 @@ func _parse_tool_block(text: String) -> Dictionary:
 	var prefix := text.substr(0, start)
 	var suffix := text.substr(end + 7)
 
-	var status_msg := "Working on files..."
+	var status_msg := ""
 
 	var json := JSON.new()
 	if json.parse(tool_json_str) == OK:
@@ -549,7 +550,11 @@ func _parse_tool_block(text: String) -> Dictionary:
 				"list_dir": status_msg = "Looking at files..."
 				"read_file": status_msg = "Reading file..."
 				"write_file": status_msg = "Writing file..."
+				"move_file": status_msg = "Moving file..."
+				"move_dir": status_msg = "Moving directory..."
+				"make_dir": status_msg = "Creating directory..."
 				"remove_file", "remove_files": status_msg = "Deleting files..."
+				"remove_dir": status_msg = "Deleting directory..."
 				"get_errors": status_msg = "Searching errors..."
 				_: status_msg = "Using tool: %s..." % data.name
 
@@ -631,6 +636,10 @@ func _on_edit_history_pressed() -> void:
 func _on_model_options_btn_item_selected(index: int) -> void:
 	_llm.model = model_options_btn.text
 
+func _on_max_steps_spin_box_value_changed(value: float) -> void:
+	if _assistant_settings:
+		_assistant_settings.max_autonomous_steps = int(value)
+
 
 # Scroll the output window by one page
 func _scroll_output_by_page() -> void:
@@ -675,4 +684,3 @@ func _on_conversation_chat_appended(new_entry: Dictionary) -> void:
 			var current_chat: Array = config.get_value("chat", "entries", [])
 			current_chat.append(new_entry)
 			config.save(_chat_save_path)
-

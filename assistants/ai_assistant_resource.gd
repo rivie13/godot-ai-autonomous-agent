@@ -27,3 +27,6 @@ Execute all possible steps to complete the orders given to you.'
 ## This value is ignored if UseCustomTemperature is false.
 @export_range(0.0, 1.0) var custom_temperature := 0.5
 
+## Maximum number of autonomous steps (tool calls) the agent can perform in a row.
+## Set to 0 to disable autonomous loops (manual confirmation for every step).
+@export var max_autonomous_steps: int = 5

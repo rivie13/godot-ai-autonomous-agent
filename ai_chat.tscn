@@ -130,6 +130,21 @@ layout_mode = 2
 [node name="VSeparator3" type="VSeparator" parent="HBoxContainer/VBoxContainer/HBoxContainer"]
 layout_mode = 2
 
+[node name="LabelMaxSteps" type="Label" parent="HBoxContainer/VBoxContainer/HBoxContainer"]
+layout_mode = 2
+text = "Max Steps"
+vertical_alignment = 1
+
+[node name="MaxStepsSpinBox" type="SpinBox" parent="HBoxContainer/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 5.0
+max_value = 50.0
+value = 5.0
+
+[node name="VSeparator4" type="VSeparator" parent="HBoxContainer/VBoxContainer/HBoxContainer"]
+layout_mode = 2
+
 [node name="EditHistory" type="Button" parent="HBoxContainer/VBoxContainer/HBoxContainer"]
 auto_translate_mode = 2
 layout_mode = 2
@@ -143,4 +158,5 @@ flat = false
 [connection signal="toggled" from="HBoxContainer/VBoxContainer/HBoxContainer/SaveCheckButton" to="." method="_on_save_check_button_toggled"]
 
 [connection signal="item_selected" from="HBoxContainer/VBoxContainer/HBoxContainer/ModelOptionsBtn" to="." method="_on_model_options_btn_item_selected"]
+[connection signal="value_changed" from="HBoxContainer/VBoxContainer/HBoxContainer/MaxStepsSpinBox" to="." method="_on_max_steps_spin_box_value_changed"]
 

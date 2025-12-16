@@ -8,7 +8,12 @@
 *   **File System Access**: Can list directories and read any file in your project.
 *   **Code Writing**: Can create new scripts or modify existing ones.
 *   **Syntax Checking**: Automatically verifies code for errors before finishing a task.
-*   **Multiple Models**: Support for **Gemini**, **Ollama**, **OpenRouter**, and **OpenWebUI**.
+*   **Context Aware**: Knows it is working inside Godot 4.5+ and uses GDScript best practices.
+
+## ⚠️ Important
+
+*   **Full Access**: The agent has **complete control** over your project's file system, including the ability to **delete files and folders** if it deems necessary. **Always use version control (Git)** to safeguard your work.
+*   **Model Recommendation**: To get the best results, use advanced APIs capable of complex reasoning ("thinking"). Simpler models may act "dumb" or fail to use tools correctly. We highly recommend using **Gemini 2.5 Pro**, which was used during testing.
 
 ## Installation and Use
 
