@@ -1,25 +1,25 @@
 class_name AIToolManager
 extends RefCounted
 
-const TOOL_TAG_OPEN = "[TOOL]"
-const TOOL_TAG_CLOSE = "[/TOOL]"
+const TOOL_TAG_OPEN = "<tool_code>"
+const TOOL_TAG_CLOSE = "</tool_code>"
 
 func get_system_instructions() -> String:
 	return """
 ## TOOL USAGE
 You are an autonomous agent capable of interacting with the Godot project files.
-To use a tool, you MUST format your response using the [TOOL] tag with a JSON object.
-The user can't see you usage of the [TOOL] tags neither the [TOOL_OUTPUT] tag you need to inform the user about it.
+To use a tool, you MUST format your response using the <tool_code> tag with a JSON object.
+The user can't see you usage of the <tool_code> tags neither the [TOOL_OUTPUT] tag you need to inform the user about it.
 
 Syntax:
-[TOOL]
+<tool_code>
 {
 	"name": "tool_name",
 	"args": {
 		"arg_name": "value"
 	}
 }
-[/TOOL]
+</tool_code>
 
 Available Tools:
 1. list_dir(path: string)
@@ -73,6 +73,8 @@ IMPORTANT:
 - ALWAYS use `list_dir` ("res://") first to explore the file structure if you are not 100% sure where the files are located (e.g. at the start of the task).
 - Do NOT guess file paths. Verify their existence with `list_dir` before reading or writing.
 - After using `write_file`, STRONGLY CONSIDER calling `get_errors` to verify the code has no syntax errors.
+- You CAN read and edit Godot Scene files (.tscn) if requested. Be careful to preserve the existing format/structure, but do not refuse to do it.
+- Keep your responses concise and direct to avoid hitting output token limits.
 - Only use one tool call per message.
 - Wait for the [TOOL_OUTPUT] before proceeding.
 - Do not make up tools.

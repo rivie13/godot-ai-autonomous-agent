@@ -350,9 +350,9 @@ func _format_markdown(text: String) -> String:
 	regex.compile("\\*\\*(?P<content>.*?)\\*\\*")
 	res = regex.sub(res, "[b]$1[/b]", true)
 	
-	# Bullet points: * text -> â€¢ text (at start of line)
+	# Bullet points: * text -> • text (at start of line)
 	regex.compile("(\\n|^)\\s*\\*\\s+(?P<content>.*)")
-	res = regex.sub(res, "$1 â€¢ $2", true)
+	res = regex.sub(res, "$1 • $2", true)
 	
 	return res
 
@@ -378,7 +378,7 @@ func _render_user_message(text: String) -> void:
 	output_window.push_indent(1)
 	output_window.push_color(Color(0xFFFF00FF))
 	output_window.append_text("> %s" % text)
-	output_window.newline() # saÃ­da limpa
+	output_window.newline() # saída limpa
 
 
 func _render_bot_message(text: String) -> void:
@@ -407,7 +407,7 @@ func _render_bot_header_if_needed() -> void:
 	output_window.push_indent(1)
 	output_window.push_indent(1)
 	output_window.append_text("[color=FF770066][b]%s[/b][/color]:" % _bot_name)
-	output_window.newline() # saÃ­da limpa
+	output_window.newline() # saída limpa
 
 	_bot_block_open = true
 
@@ -478,7 +478,7 @@ func _render_bot_plain(text: String) -> void:
 			output_window.append_text(_format_markdown(line))
 			output_window.newline()
 
-	output_window.newline() # saÃ­da limpa
+	output_window.newline() # saída limpa
 
 
 func _render_bot_with_code(text: String) -> void:
@@ -513,7 +513,7 @@ func _render_code_block(content: String) -> void:
 	output_window.append_text(escape_bbcode(code))
 
 	output_window.newline()
-	output_window.newline() # saÃ­da limpa
+	output_window.newline() # saída limpa
 
 
 # --- END RENDERERS ---
@@ -527,18 +527,30 @@ func _parse_tool_block(text: String) -> Dictionary:
 		"suffix": ""
 	}
 
-	if not (text.contains("[TOOL]") and text.contains("[/TOOL]")):
+	# Use constants from Tool Manager for consistency
+	var tag_open = AIToolManager.TOOL_TAG_OPEN
+	var tag_close = AIToolManager.TOOL_TAG_CLOSE
+
+	if not text.contains(tag_open):
 		return result
 
-	var start := text.find("[TOOL]")
-	var end := text.find("[/TOOL]")
-
-	if start == -1 or end == -1 or end <= start:
+	var start := text.find(tag_open)
+	var end := text.find(tag_close)
+	
+	# If start exists but end is missing, we assume truncation or formatting error.
+	# We will try to parse from tag_open to the end of string.
+	if end == -1:
+		end = text.length()
+	elif end <= start:
 		return result
 
-	var tool_json_str := text.substr(start + 6, end - start - 6)
+	var tool_json_str := text.substr(start + tag_open.length(), end - start - tag_open.length())
 	var prefix := text.substr(0, start)
-	var suffix := text.substr(end + 7)
+	var suffix := ""
+	
+	# Only set suffix if we actually found the closing tag
+	if text.contains(tag_close):
+		suffix = text.substr(end + tag_close.length())
 
 	var status_msg := ""
 
@@ -557,6 +569,9 @@ func _parse_tool_block(text: String) -> Dictionary:
 				"remove_dir": status_msg = "Deleting directory..."
 				"get_errors": status_msg = "Searching errors..."
 				_: status_msg = "Using tool: %s..." % data.name
+	else:
+		# Fallback if JSON parsing fails (e.g. truncation)
+		status_msg = "Using tool... (parsing incomplete)"
 
 	result.has_tool = true
 	result.prefix = prefix
