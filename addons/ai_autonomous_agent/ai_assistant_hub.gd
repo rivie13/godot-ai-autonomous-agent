@@ -189,7 +189,7 @@ func _on_assistants_refresh_btn_pressed() -> void:
 			new_bot_btn.gui_input.connect(button_callable)
 	
 	if not found:
-		no_assistants_guide.text = "Create an assistant type by selecting a model and clicking \"New assistant type\"."
+		no_assistants_guide.text = "Create an agent by selecting a model and clicking \"New agent\"."
 		no_assistants_guide.visible = true
 		assistant_types_container.visible = false
 	else:
@@ -297,4 +297,3 @@ func _load_chat(file_path: String) -> void:
 
 func _on_support_btn_pressed() -> void:
 	OS.shell_open("https://github.com/FlamxGames/godot-ai-assistant-hub/blob/main/support.md")
-
