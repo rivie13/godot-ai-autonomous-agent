@@ -313,8 +313,8 @@ func _on_http_request_completed(result: int, response_code: int, headers: Packed
 					_add_to_chat(feedback_msg, Caller.System)
 					_conversation.add_user_prompt(feedback_msg)
 					
-					# Wait a bit to avoid hitting API rate limits
-					await get_tree().create_timer(2.0).timeout
+					# Removed timer to prevent main thread suspension cancellation during script reloads
+					# prompted by filesystem updates.
 					
 					if not _is_thinking:
 						return
