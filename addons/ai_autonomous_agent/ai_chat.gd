@@ -205,7 +205,7 @@ func _load_conversation_to_chat(chat_history: Array) -> void:
 	for entry in chat_history:
 		if entry.has("role") and entry.has("content"):
 			if entry.role == llm_provider.user_role_name:
-				if entry.content.begins_with("[TOOL_OUTPUT]"):
+				if entry.content.begins_with(AIToolManager.TOOL_OUTPUT_OPEN):
 					# Tool outputs are technically user messages in some APIs, but we display as System
 					_add_to_chat(entry.content, Caller.System)
 				else:
@@ -308,7 +308,7 @@ func _on_http_request_completed(result: int, response_code: int, headers: Packed
 					_is_thinking = true
 					
 					var tool_output = _tool_manager.process_tool_call(text_answer)
-					var feedback_msg = "[TOOL_OUTPUT]\n%s\n[/TOOL_OUTPUT]" % tool_output
+					var feedback_msg = "%s\n%s\n%s" % [AIToolManager.TOOL_OUTPUT_OPEN, tool_output, AIToolManager.TOOL_OUTPUT_CLOSE]
 					
 					_add_to_chat(feedback_msg, Caller.System)
 					_conversation.add_user_prompt(feedback_msg)
@@ -391,7 +391,7 @@ func _render_bot_message(text: String) -> void:
 
 
 func _render_system_message(text: String) -> void:
-	if text.begins_with("[TOOL_OUTPUT]"):
+	if text.begins_with(AIToolManager.TOOL_OUTPUT_OPEN):
 		pass
 	else:
 		output_window.push_color(Color(0xFF7700FF))
@@ -593,7 +593,7 @@ func _add_to_chat(text: String, caller: Caller) -> void:
 	match caller:
 		Caller.You:
 			_render_user_message(text)
-			if not text.contains("[TOOL_OUTPUT]"):
+			if not text.contains(AIToolManager.TOOL_OUTPUT_OPEN):
 				_last_caller = caller
 				_bot_block_open = false
 		Caller.Bot:
@@ -601,7 +601,7 @@ func _add_to_chat(text: String, caller: Caller) -> void:
 			_last_caller = caller
 		Caller.System:
 			_render_system_message(text)
-			if not text.begins_with("[TOOL_OUTPUT]"):
+			if not text.begins_with(AIToolManager.TOOL_OUTPUT_OPEN):
 				_last_caller = caller
 				_bot_block_open = false
 

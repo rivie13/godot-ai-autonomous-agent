@@ -3,13 +3,15 @@ extends RefCounted
 
 const TOOL_TAG_OPEN = "<tool_code>"
 const TOOL_TAG_CLOSE = "</tool_code>"
+const TOOL_OUTPUT_OPEN = "<tool_output>"
+const TOOL_OUTPUT_CLOSE = "</tool_output>"
 
 func get_system_instructions() -> String:
 	return """
 ## TOOL USAGE
 You are an autonomous agent capable of interacting with the Godot project files.
 To use a tool, you MUST format your response using the <tool_code> tag with a JSON object.
-The user can't see you usage of the <tool_code> tags neither the [TOOL_OUTPUT] tag you need to inform the user about it.
+The user can't see you usage of the <tool_code> tags neither the <tool_output> tag you need to inform the user about it.
 
 Syntax:
 <tool_code>
@@ -76,7 +78,7 @@ IMPORTANT:
 - You CAN read and edit Godot Scene files (.tscn) if requested. Be careful to preserve the existing format/structure, but do not refuse to do it.
 - Keep your responses concise and direct to avoid hitting output token limits.
 - Only use one tool call per message.
-- Wait for the [TOOL_OUTPUT] before proceeding.
+- Wait for the <tool_output> before proceeding.
 - Do not make up tools.
 """
 
@@ -386,7 +388,7 @@ func _get_errors() -> String:
 	var errors = []
 	var checked_paths = {}
 	
-	# FASE 1: Verificar scripts abertos em memÃ³ria
+	# PHASE 1: Verify open scripts in memory
 	var open_scripts = script_editor.get_open_scripts()
 	for script in open_scripts:
 		if not script or not script.resource_path:
@@ -395,14 +397,14 @@ func _get_errors() -> String:
 		var path = script.resource_path
 		checked_paths[path] = true
 		
-		# Tentar pegar o texto do editor se estiver visÃ­vel
+		# Try to get text from editor if visible
 		var live_code = script.source_code
 		var is_unsaved = false
 		
-		# Verificar se este script estÃ¡ no editor ativo
+		# Check if this script is in the active editor
 		for i in range(open_scripts.size()):
 			if open_scripts[i] == script:
-				# Tentar pegar o editor correspondente
+				# Try to get corresponding editor
 				var editors = script_editor.get_open_script_editors()
 				if i < editors.size():
 					var editor = editors[i]
@@ -414,7 +416,7 @@ func _get_errors() -> String:
 							is_unsaved = true
 				break
 		
-		# Injetar cÃ³digo e tentar reload
+		# Inject code and try reload
 		script.source_code = live_code
 		var err = script.reload()
 
@@ -431,11 +433,11 @@ func _get_errors() -> String:
 				"details": details
 			})
 	
-	# FASE 2: Verificar scripts no disco (apenas .gd nÃ£o verificados)
+	# PHASE 2: Verify scripts on disk (only unchecked .gd files)
 	var all_scripts = _find_all_gd_files("res://")
 	for path in all_scripts:
 		if checked_paths.has(path):
-			continue # JÃ¡ verificado na Fase 1
+			continue # Already checked in Phase 1
 			
 		if not FileAccess.file_exists(path):
 			continue
@@ -457,9 +459,9 @@ func _get_errors() -> String:
 				"details": details
 			})
 	
-	# Formatar resultado
+	# Format result
 	if errors.is_empty():
-		return "Nenhum erro encontrado em scripts abertos ou no disco."
+		return "No errors found in open scripts or on disk."
 	
 	var result = "Errors found (%d files):\n\n" % errors.size()
 	
