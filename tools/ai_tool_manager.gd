@@ -1,0 +1,433 @@
+class_name AIToolManager
+extends RefCounted
+
+const TOOL_TAG_OPEN = "[TOOL]"
+const TOOL_TAG_CLOSE = "[/TOOL]"
+
+func get_system_instructions() -> String:
+	return """
+## TOOL USAGE
+You are an autonomous agent capable of interacting with the Godot project files.
+To use a tool, you MUST format your response using the [TOOL] tag with a JSON object.
+The user can't see you usage of the [TOOL] tags neither the [TOOL_OUTPUT] tag you need to inform the user about it.
+
+Syntax:
+[TOOL]
+{
+	"name": "tool_name",
+	"args": {
+		"arg_name": "value"
+	}
+}
+[/TOOL]
+
+Available Tools:
+1. list_dir(path: string)
+   - Recursively lists all files and folders in a directory.
+   - Use "res://" for the project root.
+   - Example: {"name": "list_dir", "args": {"path": "res://scripts"}}
+
+2. read_file(path: string)
+   - Reads the content of a file.
+   - Example: {"name": "read_file", "args": {"path": "res://scripts/player.gd"}}
+
+3. write_file(path: string, content: string)
+   - Writes content to a file. Creates the file if it doesn't exist.
+   - WARNING: This overwrites the entire file.
+   - Example: {"name": "write_file", "args": {"path": "res://readme.txt", "content": "Hello World"}}
+
+4. remove_file(path: string)
+   - Deletes a file PERMANENTLY.
+   - Use with extreme caution. confirming the path first.
+   - Example: {"name": "remove_file", "args": {"path": "res://temp.txt"}}
+
+5. remove_files(paths: array)
+   - Deletes multiple files PERMANENTLY.
+   - Use with extreme caution. confirming the path first.
+   - Example: {"name": "remove_files", "args": {"paths": ["res://temp.txt", "res://temp2.txt"]}}
+
+6. get_errors()
+   - Checks ALL scripts in the project for syntax errors.
+   - Checks open scripts first (including unsaved changes), then scans disk.
+   - Returns detailed error list with file paths and error details.
+   - Example: {"name": "get_errors", "args": {}}
+
+IMPORTANT: 
+- ALWAYS use `list_dir` ("res://") first to explore the file structure if you are not 100% sure where the files are located (e.g. at the start of the task).
+- Do NOT guess file paths. Verify their existence with `list_dir` before reading or writing.
+- After using `write_file`, STRONGLY CONSIDER calling `get_errors` to verify the code has no syntax errors.
+- Only use one tool call per message.
+- Wait for the [TOOL_OUTPUT] before proceeding.
+- Do not make up tools.
+"""
+
+func contains_tool_call(text: String) -> bool:
+	return text.contains(TOOL_TAG_OPEN) and text.contains(TOOL_TAG_CLOSE)
+
+func process_tool_call(text: String) -> String:
+	var start = text.find(TOOL_TAG_OPEN)
+	var end = text.find(TOOL_TAG_CLOSE)
+	
+	if start == -1 or end == -1:
+		return "Error: Incomplete tool tag."
+		
+	var json_str = text.substr(start + TOOL_TAG_OPEN.length(), end - start - TOOL_TAG_OPEN.length())
+	var json = JSON.new()
+	var error = json.parse(json_str)
+	
+	if error != OK:
+		return "Error: Failed to parse tool JSON: " + json.get_error_message()
+		
+	var data = json.get_data()
+	if not data is Dictionary or not "name" in data:
+		return "Error: Invalid tool JSON format. Missing 'name'."
+		
+	return _execute(data.name, data.get("args", {}))
+
+func _execute(name: String, args: Dictionary) -> String:
+	match name:
+		"list_dir":
+			return _list_dir(args.get("path", "res://"))
+		"read_file":
+			return _read_file(args.get("path", ""))
+		"write_file":
+			return _write_file(args.get("path", ""), args.get("content", ""))
+		"remove_file":
+			return _remove_file(args.get("path", ""))
+		"remove_files":
+			return _remove_files(args.get("paths", []))
+		"get_errors":
+			return _get_errors()
+		_:
+			return "Error: Unknown tool '%s'." % name
+
+func _list_dir(path: String) -> String:
+	var files: Array[String] = []
+	_scan_dir_recursive(path, "", files)
+	
+	if files.is_empty():
+		return "Directory '%s' is empty or could not be accessed." % path
+		
+	return "Directory '%s' contents (recursive):\n%s" % [path, "\n".join(files)]
+
+func _scan_dir_recursive(base_path: String, current_subdir: String, results: Array[String]) -> void:
+	var dir_path = base_path
+	if not dir_path.ends_with("/"):
+		dir_path += "/"
+	dir_path += current_subdir
+	
+	var dir = DirAccess.open(dir_path)
+	if not dir:
+		return
+	
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	while file_name != "":
+		var is_hidden := file_name.begins_with(".")
+		var is_root_addons := file_name == "addons" and (dir_path == "res://" or dir_path == "res:///")
+		
+		if not is_hidden and not is_root_addons:
+			if dir.current_is_dir():
+				var new_sub = current_subdir + file_name + "/"
+				results.append(new_sub)
+				_scan_dir_recursive(base_path, new_sub, results)
+			else:
+				results.append(current_subdir + file_name)
+		file_name = dir.get_next()
+
+func _read_file(path: String) -> String:
+	if not FileAccess.file_exists(path):
+		return "Error: File '%s' not found." % path
+		
+	var file = FileAccess.open(path, FileAccess.READ)
+	if not file:
+		return "Error: Could not open file '%s'." % path
+		
+	return file.get_as_text()
+
+var _plugin: EditorPlugin
+
+func initialize(plugin: EditorPlugin) -> void:
+	_plugin = plugin
+
+func _write_file(path: String, content: String) -> String:
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	if not file:
+		return "Error: Could not create/open file '%s' for writing." % path
+		
+	file.store_string(content)
+	file.close() # Ensure explicit close
+	
+	# Force filesystem update
+	if _plugin:
+		var fs = _plugin.get_editor_interface().get_resource_filesystem()
+		fs.update_file(path) # Use update_file for specific path
+		
+		# Visually focus the file in the FileSystem dock
+		_plugin.get_editor_interface().get_file_system_dock().navigate_to_path(path)
+		
+		# Try to refresh the text editor UI directly
+		_refresh_editor_for_script(path, content)
+		
+	return "Success: File '%s' written." % path
+
+func _refresh_editor_for_script(path: String, content: String) -> void:
+	if not _plugin: return
+	
+	var script_editor = _plugin.get_editor_interface().get_script_editor()
+	var open_scripts = script_editor.get_open_scripts()
+	
+	for script in open_scripts:
+		if script.resource_path == path:
+			# Found the script is open. Switch to it to ensure we can edit it.
+			_plugin.get_editor_interface().edit_script(script)
+			
+			# Now that it's focused, get the current editor
+			var current_editor = script_editor.get_current_editor()
+			var code_editor = current_editor.get_base_editor()
+			
+			if code_editor:
+				# Store cursor position to avoid jumping
+				var column = code_editor.get_caret_column()
+				var row = code_editor.get_caret_line()
+				var scroll_pos = code_editor.scroll_vertical
+				
+				code_editor.text = content
+				
+				# Restore cursor/scroll
+				code_editor.set_caret_column(column)
+				code_editor.set_caret_line(row)
+				code_editor.scroll_vertical = scroll_pos
+				
+				# Also update the resource source_code so they match
+				script.source_code = content
+				script.reload(true)
+				
+				# Force the editor to acknowledge the change (clears error indicators)
+				code_editor.tag_saved_version()
+				code_editor.emit_signal("text_changed")
+			return
+
+func _remove_file(path: String) -> String:
+	print("AI Assistant attempting to delete: %s" % path)
+	var dir = DirAccess.open("res://")
+	if dir.remove(path) == OK:
+		if _plugin:
+			_plugin.get_editor_interface().get_resource_filesystem().scan()
+		return "Success: File '%s' deleted." % path
+	else:
+		return "Error: Failed to delete file '%s'." % path
+
+
+func _remove_files(paths: Array) -> String:
+	var dir = DirAccess.open("res://")
+	var deleted = []
+	var failed = []
+	
+	for path in paths:
+		if dir.remove(path) == OK:
+			deleted.append(path)
+		else:
+			failed.append(path)
+			
+	if _plugin:
+		_plugin.get_editor_interface().get_resource_filesystem().scan()
+		
+	var msg = ""
+	if not deleted.is_empty():
+		msg += "Success: Deleted %d files (%s).\n" % [deleted.size(), ", ".join(deleted)]
+	if not failed.is_empty():
+		msg += "Error: Failed to delete %d files (%s)." % [failed.size(), ", ".join(failed)]
+	if msg == "":
+		msg = "No files were processed."
+		
+	return msg
+
+func _get_errors() -> String:
+	if not _plugin:
+		return "Error: Plugin not initialized."
+
+	var editor_interface = _plugin.get_editor_interface()
+	var script_editor = editor_interface.get_script_editor()
+	
+	# Try to find the output window to scrape validation errors
+	var output_rtl = _find_output_rtl(editor_interface.get_base_control())
+	var initial_log_size = 0
+	if output_rtl:
+		initial_log_size = output_rtl.get_parsed_text().length()
+	
+	var errors = []
+	var checked_paths = {}
+	
+	# FASE 1: Verificar scripts abertos em memÃ³ria
+	var open_scripts = script_editor.get_open_scripts()
+	for script in open_scripts:
+		if not script or not script.resource_path:
+			continue
+			
+		var path = script.resource_path
+		checked_paths[path] = true
+		
+		# Tentar pegar o texto do editor se estiver visÃ­vel
+		var live_code = script.source_code
+		var is_unsaved = false
+		
+		# Verificar se este script estÃ¡ no editor ativo
+		for i in range(open_scripts.size()):
+			if open_scripts[i] == script:
+				# Tentar pegar o editor correspondente
+				var editors = script_editor.get_open_script_editors()
+				if i < editors.size():
+					var editor = editors[i]
+					var base_editor = editor.get_base_editor()
+					if base_editor:
+						var editor_text = base_editor.text
+						if editor_text != script.source_code:
+							live_code = editor_text
+							is_unsaved = true
+				break
+		
+		# Injetar cÃ³digo e tentar reload
+		script.source_code = live_code
+		var err = script.reload()
+
+		if err != OK:
+			var status = "[OPEN - UNSAVED]" if is_unsaved else "[OPEN]"
+			var details = ""
+			if output_rtl:
+				details = _scrape_rtl_error(output_rtl, path.get_file(), initial_log_size)
+			
+			errors.append({
+				"path": path,
+				"status": status,
+				"error_code": err,
+				"details": details
+			})
+	
+	# FASE 2: Verificar scripts no disco (apenas .gd nÃ£o verificados)
+	var all_scripts = _find_all_gd_files("res://")
+	for path in all_scripts:
+		if checked_paths.has(path):
+			continue # JÃ¡ verificado na Fase 1
+			
+		if not FileAccess.file_exists(path):
+			continue
+			
+		var script = load(path)
+		if not script is Script:
+			continue
+			
+		var err = script.reload()
+		if err != OK:
+			var details = ""
+			if output_rtl:
+				details = _scrape_rtl_error(output_rtl, path.get_file(), initial_log_size)
+				
+			errors.append({
+				"path": path,
+				"status": "[DISK]",
+				"error_code": err,
+				"details": details
+			})
+	
+	# Formatar resultado
+	if errors.is_empty():
+		return "Nenhum erro encontrado em scripts abertos ou no disco."
+	
+	var result = "Errors found (%d files):\n\n" % errors.size()
+	
+	for error in errors:
+		result += "%s %s\n" % [error.status, error.path]
+		result += "  Error Code: %d\n" % error.error_code
+		if not error.details.is_empty():
+			result += "  Details (%s)\n" % error.details
+		else:
+			result += "  Details (unavailable)\n"
+		result += "\n"
+	
+	return result
+
+func _find_all_gd_files(base_path: String) -> Array:
+	var files = []
+	_scan_gd_recursive(base_path, "", files)
+	return files
+
+func _scan_gd_recursive(base_path: String, current_subdir: String, results: Array) -> void:
+	var dir_path = base_path
+	if not dir_path.ends_with("/"):
+		dir_path += "/"
+	dir_path += current_subdir
+	
+	var dir = DirAccess.open(dir_path)
+	if not dir:
+		return
+	
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	while file_name != "":
+		var is_hidden := file_name.begins_with(".")
+		var is_addons := file_name == "addons" and (dir_path == "res://")
+		
+		if not is_hidden and not is_addons:
+			if dir.current_is_dir():
+				var new_sub = current_subdir + file_name + "/"
+				_scan_gd_recursive(base_path, new_sub, results)
+			elif file_name.ends_with(".gd"):
+				results.append(base_path + current_subdir + file_name)
+		file_name = dir.get_next()
+
+
+func _find_output_rtl(root: Node) -> RichTextLabel:
+	# Robust search: Find ALL RichTextLabels and check if their path suggests they are the Output log
+	var all_rtls = root.find_children("*", "RichTextLabel", true, false)
+	
+	for node in all_rtls:
+		if not node is RichTextLabel: continue
+		
+		# Avoid scanning our own UI
+		if "AIAssistant" in node.name or "AIAssistant" in str(node.get_path()):
+			continue
+			
+		# Check if parent or path looks like the Output dock
+		# Based on debug: @EditorBottomPanel@.../@EditorLog@...
+		var path_str = str(node.get_path())
+		if "EditorLog" in path_str:
+			return node as RichTextLabel
+			
+	return null
+
+
+func _scrape_rtl_error(rtl: RichTextLabel, source: String, start_offset: int) -> String:
+	var text = rtl.get_parsed_text()
+	if text.is_empty():
+		text = rtl.text
+	
+	if text.is_empty(): return "[Empty Output Log]"
+	
+	# Only look at the new part of the log (after start_offset)
+	var new_log_chunk = text
+	if start_offset > 0 and start_offset < text.length():
+		new_log_chunk = text.substr(start_offset)
+	elif start_offset >= text.length():
+		# No new text? Then maybe reload didn't print anything or just returned error code
+		return "[No new logs generated]"
+	
+	var lines = new_log_chunk.split("\n")
+	var unique_lines = []
+	var seen_lines = {}
+	
+	# Process matching lines
+	for line in lines:
+		var clean_line = line.strip_edges()
+		if clean_line.is_empty(): continue
+		
+		if source in clean_line:
+			if not seen_lines.has(clean_line):
+				seen_lines[clean_line] = true
+				unique_lines.append(clean_line)
+			
+	if unique_lines.is_empty():
+		return "[No specific errors found in new logs for %s]" % source
+			
+	return "From %s LOG:\n%s" % [source, "\n".join(unique_lines)]
+
