@@ -1,3 +1,7 @@
+# Project config ignores (User preference)
+project.godot
+.editorconfig
+
 # Godot 4+ specific ignores
 .godot/
 .imported/
