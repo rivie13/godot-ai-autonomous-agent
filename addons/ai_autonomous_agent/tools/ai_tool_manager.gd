@@ -298,7 +298,22 @@ func _write_file(path: String, content: String) -> String:
 		# Try to refresh the text editor UI directly
 		_refresh_editor_for_script(path, content)
 		
+		# Try to refresh open scenes if applicable
+		_refresh_editor_for_scene(path)
+		
 	return "Success: File '%s' written." % path
+
+func _refresh_editor_for_scene(path: String) -> void:
+	if not _plugin: return
+	
+	if not path.ends_with(".tscn") and not path.ends_with(".scn"):
+		return
+		
+	var editor_interface = _plugin.get_editor_interface()
+	var open_scenes = editor_interface.get_open_scenes()
+	
+	if open_scenes.has(path):
+		editor_interface.reload_scene_from_path(path)
 
 func _refresh_editor_for_script(path: String, content: String) -> void:
 	if not _plugin: return
