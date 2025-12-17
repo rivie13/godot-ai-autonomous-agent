@@ -318,6 +318,9 @@ func _refresh_editor_for_scene(path: String) -> void:
 func _refresh_editor_for_script(path: String, content: String) -> void:
 	if not _plugin: return
 	
+	if not FileAccess.file_exists(path):
+		return
+	
 	var script_editor = _plugin.get_editor_interface().get_script_editor()
 	var open_scripts = script_editor.get_open_scripts()
 	
@@ -345,7 +348,9 @@ func _refresh_editor_for_script(path: String, content: String) -> void:
 				
 				# Also update the resource source_code so they match
 				script.source_code = content
-				script.reload(true)
+				# Use soft reload (false/default) instead of hard reload (true) 
+				# to avoid "File not found" race conditions with the filesystem.
+				script.reload()
 				
 				# Force the editor to acknowledge the change (clears error indicators)
 				code_editor.tag_saved_version()
