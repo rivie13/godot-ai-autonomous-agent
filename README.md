@@ -1,4 +1,4 @@
-# AI Autonomous Agent (for Godot 4.5+)
+# AI Autonomous Agent (for Godot 4.0+)
 
 **AI Autonomous Agent** is a powerful plugin that embeds an autonomous coding agent directly into the Godot Editor. Unlike simple chat wrappers, this agent has **agency**: it can read your project files, write code, list directories, and even check for syntax errors in your logs autonomously to complete complex tasks.
 
