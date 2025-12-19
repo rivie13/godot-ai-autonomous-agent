@@ -112,7 +112,7 @@ func initialize(plugin: AIHubPlugin, assistant_settings: AIAssistantResource, bo
 
 		
 		if new_conversation:
-			var sys_msg = "%s\nYour name is %s." % [_assistant_settings.ai_description, _bot_name]
+			var sys_msg = "%s" % [_assistant_settings.ai_description]
 			sys_msg += "\n" + _tool_manager.get_system_instructions()
 			_conversation.set_system_message(sys_msg)
 	
@@ -291,7 +291,7 @@ func _abandon_button_pressed() -> void:
 
 func _on_http_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	#print("HTTP response: Result: %d, Response Code: %d, Headers: %s, Body: %s" % [result, response_code, headers, body])
-	if result == 0:
+	if result == HTTPRequest.RESULT_SUCCESS:
 		var text_answer = _llm.read_response(body)
 		if text_answer == LLMInterface.INVALID_RESPONSE:
 			_is_thinking = false
@@ -307,8 +307,17 @@ func _on_http_request_completed(result: int, response_code: int, headers: Packed
 					# Keep thinking state
 					_is_thinking = true
 					
-					var tool_output = _tool_manager.process_tool_call(text_answer)
-					var feedback_msg = "%s\n%s\n%s" % [AIToolManager.TOOL_OUTPUT_OPEN, tool_output, AIToolManager.TOOL_OUTPUT_CLOSE]
+					var tool_calls = _tool_manager.extract_tool_calls(text_answer)
+					var combined_output = ""
+					
+					for call_data in tool_calls:
+						var tool_name = call_data.name
+						var tool_args = call_data.get("args", {})
+						var output = _tool_manager.execute_tool(tool_name, tool_args)
+						
+						combined_output += "Tool '%s' Output:\n%s\n\n" % [tool_name, output]
+					
+					var feedback_msg = "%s\n%s\n%s" % [AIToolManager.TOOL_OUTPUT_OPEN, combined_output.strip_edges(), AIToolManager.TOOL_OUTPUT_CLOSE]
 					
 					_add_to_chat(feedback_msg, Caller.System)
 					_conversation.add_user_prompt(feedback_msg)
@@ -333,8 +342,9 @@ func _on_http_request_completed(result: int, response_code: int, headers: Packed
 				_autonomous_loop_count = 0
 	else:
 		_is_thinking = false
-		push_error("HTTP response: Result: %s, Response Code: %d, Headers: %s, Body: %s" % [result, response_code, headers, body])
-		_add_to_chat("An error occurred while communicating with the assistant. Review the details in Godot's Output tab.", Caller.System)
+		var error_msg = _get_http_result_string(result)
+		push_error("HTTP Request Error: %s (Result Code: %d). Response Code: %d." % [error_msg, result, response_code])
+		_add_to_chat("Connection error: %s. Check Godot Output for details." % error_msg, Caller.System)
 
 
 func escape_bbcode(bbcode_text):
@@ -444,6 +454,11 @@ func _render_heading(line: String) -> bool:
 
 
 func _render_bot_plain(text: String) -> void:
+	# Strip hallucinated tool outputs
+	var regex = RegEx.new()
+	regex.compile("(?s)<tool_output>.*?</tool_output>")
+	text = regex.sub(text, "", true)
+	
 	var parsed := _parse_tool_block(text)
 	var prefix := String(parsed.prefix).strip_edges()
 	var suffix := String(parsed.suffix).strip_edges()
@@ -472,11 +487,16 @@ func _render_bot_plain(text: String) -> void:
 		output_window.newline()
 	
 	if suffix != "":
-		for line in suffix.split("\n"):
-			if _render_heading(line):
-				continue
-			output_window.append_text(_format_markdown(line))
-			output_window.newline()
+		# If we found a tool, we must recursively check the suffix for MORE tools
+		if parsed.has_tool:
+			_render_bot_plain(suffix)
+		else:
+			# Should typically be empty if no tool, but just in case:
+			for line in suffix.split("\n"):
+				if _render_heading(line):
+					continue
+				output_window.append_text(_format_markdown(line))
+				output_window.newline()
 
 	output_window.newline() # saída limpa
 
@@ -558,20 +578,21 @@ func _parse_tool_block(text: String) -> Dictionary:
 	if json.parse(tool_json_str) == OK:
 		var data := json.get_data()
 		if data is Dictionary and "name" in data:
+			var args: Dictionary = data.get("args", {})
 			match data.name:
-				"list_dir": status_msg = "Looking at files..."
-				"read_file": status_msg = "Reading file..."
-				"write_file": status_msg = "Writing file..."
-				"move_file": status_msg = "Moving file..."
-				"move_dir": status_msg = "Moving directory..."
-				"make_dir": status_msg = "Creating directory..."
-				"remove_file", "remove_files": status_msg = "Deleting files..."
-				"remove_dir": status_msg = "Deleting directory..."
-				"get_errors": status_msg = "Searching errors..."
+				"list_dir": status_msg = "Listing files in %s..." % args.get("path", "res://")
+				"read_file": status_msg = "Reading file %s..." % args.get("path", "???")
+				"write_file": status_msg = "Writing file %s..." % args.get("path", "???")
+				"move_file": status_msg = "Moving %s -> %s..." % [args.get("source", "?"), args.get("destination", "?")]
+				"move_dir": status_msg = "Moving dir %s -> %s..." % [args.get("source", "?"), args.get("destination", "?")]
+				"make_dir": status_msg = "Creating dir %s..." % args.get("path", "???")
+				"remove_file", "remove_files": status_msg = "Deleting file %s..." % args.get("path", "???")
+				"remove_dir": status_msg = "Deleting dir %s..." % args.get("path", "???")
+				"get_errors": status_msg = "Checking for errors..."
 				_: status_msg = "Using tool: %s..." % data.name
 	else:
 		# Fallback if JSON parsing fails (e.g. truncation)
-		status_msg = "Using tool... (parsing incomplete)"
+		status_msg = "Error parsing tool output"
 
 	result.has_tool = true
 	result.prefix = prefix
@@ -614,7 +635,7 @@ func _add_to_chat(text: String, caller: Caller) -> void:
 
 
 func _on_models_http_request_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
-	if result == 0:
+	if result == HTTPRequest.RESULT_SUCCESS:
 		var models_returned: Array = _llm.read_models_response(body)
 		if models_returned.size() == 0:
 			push_error("No models found. Download at least one model and try again.")
@@ -624,7 +645,26 @@ func _on_models_http_request_request_completed(result: int, response_code: int, 
 			else:
 				_load_models(models_returned)
 	else:
-		push_error("HTTP response: Result: %s, Response Code: %d, Headers: %s, Body: %s" % [result, response_code, headers, body])
+		var error_msg = _get_http_result_string(result)
+		push_error("HTTP Request Error: %s (Result Code: %d). Response Code: %d." % [error_msg, result, response_code])
+
+
+func _get_http_result_string(result: int) -> String:
+	match result:
+		HTTPRequest.RESULT_SUCCESS: return "Success"
+		HTTPRequest.RESULT_CHUNKED_BODY_SIZE_MISMATCH: return "Chunked Body Size Mismatch"
+		HTTPRequest.RESULT_CANT_CONNECT: return "Can't Connect"
+		HTTPRequest.RESULT_CANT_RESOLVE: return "Can't Resolve DNS"
+		HTTPRequest.RESULT_CONNECTION_ERROR: return "Connection Error"
+		HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR: return "TLS Handshake Error"
+		HTTPRequest.RESULT_NO_RESPONSE: return "No Response"
+		HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED: return "Body Size Limit Exceeded"
+		HTTPRequest.RESULT_REQUEST_FAILED: return "Request Failed"
+		HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN: return "Download File Can't Open"
+		HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR: return "Download File Write Error"
+		HTTPRequest.RESULT_REDIRECT_LIMIT_REACHED: return "Redirect Limit Reached"
+		HTTPRequest.RESULT_TIMEOUT: return "Timeout"
+		_: return "Unknown Error (%d)" % result
 
 
 func _load_models(models: Array[String]) -> void:

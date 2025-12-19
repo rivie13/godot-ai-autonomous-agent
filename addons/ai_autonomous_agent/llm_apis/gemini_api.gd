@@ -87,15 +87,22 @@ func send_chat_request(http_request: HTTPRequest, message_list: Array) -> bool:
 
 	# Gemini expects each message with role and a parts array of {text: ...}
 	var formatted_contents := []
+	var system_instruction_content := ""
+	
 	for i in range(message_list.size()):
 		var msg = message_list[i]
 		var role: String = str(msg.get("role", "user"))
 		var text = msg.get("content", msg.get("text", msg))
 		text = _extract_content_from_json_string(text)
 
+		# If it's a system message, save it for the specific field and skip adding to contents
+		if role == "system" or role == "system_instruction":
+			system_instruction_content = text
+			continue
+
 		formatted_contents.append({
 			"role": role,
-			"parts": [ { "text": str(text) } ]
+			"parts": [ {"text": str(text)}]
 		})
 	
 	#print("ACTUAL message_list: ", message_list)
@@ -103,8 +110,13 @@ func send_chat_request(http_request: HTTPRequest, message_list: Array) -> bool:
 	var body_dict := {
 		"contents": formatted_contents
 	}
+	
+	if not system_instruction_content.is_empty():
+		body_dict["system_instruction"] = {
+			"parts": [ {"text": system_instruction_content}]
+		}
 	if override_temperature:
-		body_dict["generationConfig"] = { "temperature": temperature }
+		body_dict["generationConfig"] = {"temperature": temperature}
 	var body := JSON.stringify(body_dict)
 
 	var error = http_request.request(_chat_url, _headers, HTTPClient.METHOD_POST, body)
@@ -137,7 +149,7 @@ func read_response(body: PackedByteArray) -> String:
 	if response.has("candidates") and response.candidates.size() > 0:
 		if response.candidates[0].has("content") and response.candidates[0].content.has("parts"):
 			var parts = response.candidates[0].content.parts
-			var conc_response:=""
+			var conc_response := ""
 			for part in parts:
 				if part.has("text"):
 					conc_response += part.text
@@ -169,4 +181,3 @@ func _deprecated_load_api_key_from_file() -> String:
 	if result and result.get_group_count() > 0:
 		return result.get_string(1)
 	return ""
-

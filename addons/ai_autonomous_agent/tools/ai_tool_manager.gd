@@ -10,8 +10,13 @@ func get_system_instructions() -> String:
 	return """
 ## TOOL USAGE
 You are an autonomous agent capable of interacting with the Godot project files.
+Execute all possible steps, one per time, with caution to complete the orders given to you.
 To use a tool, you MUST format your response using the <tool_code> tag with a JSON object.
-The user can't see you usage of the <tool_code> tags neither the <tool_output> tag you need to inform the user about it.
+The user can't see you usage of the <tool_code> tags
+
+## GUIDELINES
+- If you need to plan or reason before acting, wrap your thoughts in <think>...</think> tags. These will typically be hidden from the user.
+- Otherwise, keep your responses concise and direct.
 
 Syntax:
 <tool_code>
@@ -71,21 +76,48 @@ Available Tools:
    - Returns detailed error list with file paths and error details.
    - Example: {"name": "get_errors", "args": {}}
 
-IMPORTANT: 
-- ALWAYS use `list_dir` ("res://") first to explore the file structure if you are not 100% sure where the files are located (e.g. at the start of the task).
-- Do NOT guess file paths. Verify their existence with `list_dir` before reading or writing.
+- IMPORTANT: Only use one tool call per message. Wait for the result (the <tool_output> tag) before proceeding.
+- CRITICAL: BEFORE writing any code or creating files, you MUST read the existing directory structure and relevant files to understand the project context. Do NOT write code blindly.
+- Do NOT guess file paths. Verify their existence with `list_dir` before reading.
 - After using `write_file`, STRONGLY CONSIDER calling `get_errors` to verify the code has no syntax errors.
 - You CAN read and edit Godot Scene files (.tscn) if requested. Be careful to preserve the existing format/structure, but do not refuse to do it.
 - Keep your responses concise and direct to avoid hitting output token limits.
-- Only use one tool call per message.
-- Wait for the <tool_output> before proceeding.
+- Wait for the <tool_output> from the system. Do NOT generate <tool_output> tags yourself.
 - Do not make up tools.
 """
 
 func contains_tool_call(text: String) -> bool:
 	return text.contains(TOOL_TAG_OPEN) and text.contains(TOOL_TAG_CLOSE)
 
+func extract_tool_calls(text: String) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var json = JSON.new()
+	
+	var p = 0
+	while true:
+		var start = text.find(TOOL_TAG_OPEN, p)
+		if start == -1:
+			break
+			
+		var end = text.find(TOOL_TAG_CLOSE, start)
+		if end == -1:
+			break
+			
+		var json_str = text.substr(start + TOOL_TAG_OPEN.length(), end - start - TOOL_TAG_OPEN.length())
+		var err = json.parse(json_str)
+		
+		# If parse successful
+		if err == OK:
+			var data = json.get_data()
+			if data is Dictionary and "name" in data:
+				result.append(data)
+		
+		p = end + TOOL_TAG_CLOSE.length()
+		
+	return result
+
 func process_tool_call(text: String) -> String:
+	# Legacy single-call processor
 	var start = text.find(TOOL_TAG_OPEN)
 	var end = text.find(TOOL_TAG_CLOSE)
 	
@@ -103,9 +135,9 @@ func process_tool_call(text: String) -> String:
 	if not data is Dictionary or not "name" in data:
 		return "Error: Invalid tool JSON format. Missing 'name'."
 		
-	return _execute(data.name, data.get("args", {}))
+	return execute_tool(data.name, data.get("args", {}))
 
-func _execute(name: String, args: Dictionary) -> String:
+func execute_tool(name: String, args: Dictionary) -> String:
 	match name:
 		"list_dir":
 			return _list_dir(args.get("path", "res://"))
