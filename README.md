@@ -37,4 +37,3 @@ Based on the **AI Assistant Hub** plugin originally created by **[Flamx Games](h
 ---
 
 **Author:** Vitor Zanatta Walter
-**Version:** 1.0.0
