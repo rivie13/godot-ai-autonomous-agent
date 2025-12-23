@@ -9,7 +9,7 @@
 *   **Code Writing**: Can create new scripts or modify existing ones.
 *   **Scene Editing**: Can create and modify (.tscn) scenes, including nodes, properties, and hierarchy.
 *   **Syntax Checking**: Automatically verifies code for errors before finishing a task.
-*   **Context Aware**: Knows it is working inside Godot 4.5+ and uses GDScript best practices.
+*   **Context Aware**: Knows it is working inside Godot and uses GDScript best practices.
 
 ## ⚠️ Important
 
