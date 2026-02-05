@@ -2,6 +2,14 @@
 class_name AIHubPlugin
 extends EditorPlugin
 
+const AIAssistantHub = preload("res://addons/ai_autonomous_agent/ai_assistant_hub.gd")
+const LLMConfigManager = preload("res://addons/ai_autonomous_agent/llm_config_manager.gd")
+const LLMInterface = preload("res://addons/ai_autonomous_agent/llm_apis/llm_interface.gd")
+const LLMProviderResource = preload("res://addons/ai_autonomous_agent/llm_providers/llm_provider_resource.gd")
+const GeminiAPI = preload("res://addons/ai_autonomous_agent/llm_apis/gemini_api.gd")
+const OpenRouterAPI = preload("res://addons/ai_autonomous_agent/llm_apis/openrouter_api.gd")
+const OpenWebUIAPI = preload("res://addons/ai_autonomous_agent/llm_apis/openwebui_api.gd")
+
 enum ThinkingTargets {Output, Chat, Discard}
 const PREF_REMOVE_THINK := "plugins/ai_assistant_hub/preferences/thinking_target"
 const PREF_SCROLL_BOTTOM := "plugins/ai_assistant_hub/preferences/always_scroll_to_bottom"
@@ -23,9 +31,9 @@ func _enter_tree() -> void:
 	if _use_internal_hub_dock:
 		_hub_dock = load("res://addons/ai_autonomous_agent/ai_assistant_hub.tscn").instantiate()
 		_hub_dock.initialize(self)
-		add_control_to_bottom_panel(_hub_dock, "AI Agent")
+		_hub_dock.set_meta("_phoenix_focus_dock", true)
+		add_control_to_dock(EditorPlugin.DOCK_SLOT_RIGHT_UL, _hub_dock)
 	add_tool_menu_item("AI Assistant Settings", Callable(self, "_open_settings_window"))
-	#add_control_to_dock(EditorPlugin.DOCK_SLOT_LEFT_UL, _hub_dock)
 
 
 func initialize_project_settings() -> void:
@@ -88,9 +96,8 @@ func initialize_project_settings() -> void:
 
 func _exit_tree() -> void:
 	if _use_internal_hub_dock and _hub_dock != null:
-		remove_control_from_bottom_panel(_hub_dock)
+		remove_control_from_docks(_hub_dock)
 	remove_tool_menu_item("AI Assistant Settings")
-	#remove_control_from_docks(_hub_dock)
 	if _hub_dock != null:
 		_hub_dock.queue_free()
 	if _settings_window != null:
