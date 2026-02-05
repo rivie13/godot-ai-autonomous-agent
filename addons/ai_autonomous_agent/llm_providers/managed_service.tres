@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LLMProviderResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/ai_autonomous_agent/llm_providers/llm_provider_resource.gd" id="1_7q4k1"]
+
+[resource]
+script = ExtResource("1_7q4k1")
+api_id = "openai_compatible_api"
+name = "Managed Service (Phoenix)"
+description = "Managed service with OpenAI-compatible API"
+requires_key = true
+models_url_postfix = "/v1/models"
+chat_url_postfix = "/v1/chat/completions"

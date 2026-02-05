@@ -7,17 +7,14 @@ const NEW_AI_ASSISTANT_TYPE_WINDOW = preload("res://addons/ai_autonomous_agent/n
 const AI_CHAT = preload("res://addons/ai_autonomous_agent/ai_chat.tscn")
 
 @onready var models_http_request: HTTPRequest = %ModelsHTTPRequest
-@onready var url_txt: LineEdit = %UrlTxt
 @onready var models_list: ItemList = %ModelsList
 @onready var models_list_error: Label = %ModelsListError
 @onready var no_assistants_guide: Label = %NoAssistantsGuide
 @onready var assistant_types_container: HFlowContainer = %AssistantTypesContainer
 @onready var tab_container: TabContainer = %TabContainer
 @onready var new_assistant_type_button: Button = %NewAssistantTypeButton
-@onready var llm_provider_option: OptionButton = %LLMProviderOption
-@onready var url_label: Label = %UrlLabel
-@onready var api_key_txt: LineEdit = %APIKeyTxt
-@onready var get_key_link: LinkButton = %GetKeyLink
+@onready var settings_hint: Label = %SettingsHint
+@onready var open_settings_button: Button = %OpenSettingsButton
 
 
 var _plugin: AIHubPlugin
@@ -25,6 +22,7 @@ var _tab_bar: TabBar
 var _model_names: Array[String] = []
 var _models_llm: LLMInterface
 var _current_api_id: String
+var _current_llm_provider: LLMProviderResource
 
 
 func _tab_changed(tab_index: int) -> void:
@@ -54,9 +52,9 @@ func _close_tab(tab_index: int) -> void:
 func initialize(plugin: AIHubPlugin) -> void:
 	_plugin = plugin
 	await ready
-	_current_api_id = ProjectSettings.get_setting(AIHubPlugin.CONFIG_LLM_API)
-	
-	_initialize_llm_provider_options() # Load LLM providers
+	settings_hint.text = "Configure LLM provider in Tools → AI Assistant Settings."
+	open_settings_button.pressed.connect(_on_open_settings_pressed)
+	_reload_llm_from_settings()
 	_on_assistants_refresh_btn_pressed() # Load assistant buttons
 	
 	_tab_bar = tab_container.get_tab_bar()
@@ -65,83 +63,28 @@ func initialize(plugin: AIHubPlugin) -> void:
 	
 	_load_saved_chats()
 
-
-# Initialize LLM provider options
-func _initialize_llm_provider_options() -> void:
-	llm_provider_option.clear()
-
-	var files := _get_all_resources("%s/llm_providers" % self.scene_file_path.get_base_dir())
-	var i := 0
-	for provider_file in files:
-		var provider = load(provider_file)
-		if provider is LLMProviderResource:
-			llm_provider_option.add_item(provider.name)
-			llm_provider_option.set_item_tooltip(i, provider.description)
-			llm_provider_option.set_item_metadata(i, provider)
-			# Select currently used provider
-			if provider.api_id == _current_api_id:
-				llm_provider_option.select(i)
-				_on_llm_provider_option_item_selected(i)
-			i += 1
-
-
-# Update UI based on current provider selection
-func _update_provider_ui() -> void:
-	var llm_provider: LLMProviderResource = llm_provider_option.get_selected_metadata()
-	if llm_provider == null:
-		push_error("No LLM provider is selected.")
-		return
-	
-	var config = LLMConfigManager.new(llm_provider.api_id)
-	if llm_provider.fix_url.is_empty():
-		url_txt.editable = true
-		url_txt.text = config.load_url()
-	else:
-		url_txt.editable = false
-		url_txt.text = llm_provider.fix_url
-	api_key_txt.visible = llm_provider.requires_key
-	api_key_txt.text = config.load_key()
-	get_key_link.visible = not llm_provider.get_key_url.is_empty()
-	get_key_link.uri = llm_provider.get_key_url
-	
-	if url_txt.visible and api_key_txt.visible:
-		url_label.text = "Server URL / API key"
-	else:
-		url_label.text = "Server URL"
-	
-	_on_refresh_models_btn_pressed() # Load models
-
-
-func _on_settings_changed(_x) -> void:
-	var llm_provider: LLMProviderResource = llm_provider_option.get_selected_metadata()
-	if llm_provider == null:
-		push_error("No LLM provider is selected. Settings not saved.")
-		return
-	var config = LLMConfigManager.new(llm_provider.api_id)
-	if not api_key_txt.text.is_empty():
-		config.save_key(api_key_txt.text)
-	if llm_provider.fix_url.is_empty() and not url_txt.text.is_empty():
-		config.save_url(url_txt.text)
-	_models_llm.load_llm_parameters()
-
-
 func _on_refresh_models_btn_pressed() -> void:
-	var llm_provider: LLMProviderResource = llm_provider_option.get_selected_metadata()
-	if not url_txt.text.is_empty():
-		models_list.deselect_all()
-		models_list.visible = false
-		models_list_error.visible = false
-		_models_llm.send_get_models_request(models_http_request)
-	else:
-		models_list_error.text = "Configure the Server URL below to get the list of available models."
-		models_list_error.visible = true
-		models_list.visible = false
+	if _current_llm_provider == null or _models_llm == null:
+		_set_models_error("Configure the LLM provider in Tools → AI Assistant Settings.")
+		return
+	var base_url := _get_base_url_for_provider(_current_llm_provider)
+	if base_url.is_empty():
+		_set_models_error("Configure the Server URL in AI Assistant Settings to load available models.")
+		return
+	models_list.deselect_all()
+	models_list.visible = false
+	models_list_error.visible = false
+	_models_llm.load_llm_parameters()
+	_models_llm.send_get_models_request(models_http_request)
 
 
 func _on_models_http_request_completed(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	models_list_error.visible = false
 	models_list.visible = false
 	if result == 0:
+		if _models_llm == null:
+			_set_models_error("LLM provider not configured.")
+			return
 		var models_returned: Array = _models_llm.read_models_response(body)
 		if models_returned.size() == 0:
 			models_list_error.text = "No models found. Download at least one model and try again."
@@ -178,11 +121,11 @@ func _on_assistants_refresh_btn_pressed() -> void:
 			var new_bot_btn: NewAIAssistantButton = NEW_AI_ASSISTANT_BUTTON.instantiate()
 			new_bot_btn.initialize(_plugin, assistant)
 			new_bot_btn.chat_created.connect(_on_new_bot_btn_chat_created)
-			assistant_types_container.add_child(new_bot_btn)
+			assistant_types_container.call_deferred("add_child", new_bot_btn)
 			var bot_menu: PopupMenu = PopupMenu.new()
 			bot_menu.add_item("Edit", 0)
 			bot_menu.add_item("Delete", 1)
-			new_bot_btn.add_child(bot_menu)
+			new_bot_btn.call_deferred("add_child", bot_menu)
 			var menu_callable = Callable(self, "_on_assistant_button_menu_select").bind(assistant_file)
 			bot_menu.id_pressed.connect(menu_callable)
 			var button_callable = Callable(self, "_on_button_gui_input").bind(bot_menu)
@@ -215,54 +158,25 @@ func _on_assistant_button_menu_select(id: int, assistant_file: String) -> void:
 
 
 func _on_new_bot_btn_chat_created(chat: AIChat) -> void:
-	tab_container.add_child(chat)
-	tab_container.set_tab_icon(tab_container.get_child_count() - 1, chat.get_assistant_settings().type_icon)
-	tab_container.current_tab = chat.get_index()
-	chat.save_changed.connect(_on_chat_save_changed)
-
-
-func _get_all_resources(path: String) -> Array[String]:
-	var file_paths: Array[String] = []
-	var dir = DirAccess.open(path)
-	dir.list_dir_begin()
-	var file_name = dir.get_next()
-	while not file_name.is_empty():
-		if file_name.ends_with(".tres"):
-			var file_path = path + "/" + file_name
-			file_paths.append(file_path)
-		file_name = dir.get_next()
-	return file_paths
-
-
-# Called when LLM provider option changes
-func _on_llm_provider_option_item_selected(index: int) -> void:
-	var llm_provider: LLMProviderResource = llm_provider_option.get_item_metadata(index)
-	_current_api_id = llm_provider.api_id
-	var new_llm: LLMInterface = _plugin.new_llm(llm_provider)
-	if new_llm == null:
-		push_error("Invalid LLM API")
-	else:
-		_models_llm = new_llm
-	ProjectSettings.set_setting(AIHubPlugin.CONFIG_LLM_API, llm_provider.api_id)
-	ProjectSettings.save()
-	_update_provider_ui()
+	tab_container.call_deferred("add_child", chat)
+	call_deferred("_deferred_setup_chat_tab", chat)
 
 
 func get_selected_llm_resource() -> LLMProviderResource:
-	return llm_provider_option.get_selected_metadata()
+	return _current_llm_provider
 
 
 func _on_new_assistant_type_button_pressed() -> void:
+	if _current_llm_provider == null:
+		push_error("No LLM provider configured. Configure it in AI Assistant Settings.")
+		return
 	if models_list.is_anything_selected():
 		var new_assistant_type_window: NewAIAssistantTypeWindow = NEW_AI_ASSISTANT_TYPE_WINDOW.instantiate()
-		var api_class: String = _current_api_id
 		var model_name: String = models_list.get_item_text(models_list.get_selected_items()[0])
 		var assistants_path = "%s/assistants" % self.scene_file_path.get_base_dir()
-		var llm_provider: LLMProviderResource = llm_provider_option.get_selected_metadata()
-		new_assistant_type_window.initialize(llm_provider, model_name, assistants_path)
+		new_assistant_type_window.initialize(_current_llm_provider, model_name, assistants_path)
 		new_assistant_type_window.assistant_type_created.connect(_on_assistants_refresh_btn_pressed)
-		add_child(new_assistant_type_window)
-		new_assistant_type_window.popup()
+		call_deferred("_deferred_open_new_assistant_window", new_assistant_type_window)
 	else:
 		new_assistant_type_button.disabled = true
 
@@ -297,3 +211,82 @@ func _load_chat(file_path: String) -> void:
 
 func _on_support_btn_pressed() -> void:
 	OS.shell_open("https://github.com/FlamxGames/godot-ai-assistant-hub/blob/main/support.md")
+
+
+func _on_open_settings_pressed() -> void:
+	if _plugin:
+		_plugin.open_settings_window()
+
+
+func _deferred_setup_chat_tab(chat: AIChat) -> void:
+	if not is_instance_valid(chat):
+		return
+	tab_container.set_tab_icon(tab_container.get_child_count() - 1, chat.get_assistant_settings().type_icon)
+	tab_container.current_tab = chat.get_index()
+	chat.save_changed.connect(_on_chat_save_changed)
+
+
+func _deferred_open_new_assistant_window(window: NewAIAssistantTypeWindow) -> void:
+	if not is_instance_valid(window):
+		return
+	add_child(window)
+	window.popup()
+
+
+func refresh_settings() -> void:
+	_reload_llm_from_settings()
+
+
+func _reload_llm_from_settings() -> void:
+	_current_api_id = ProjectSettings.get_setting(AIHubPlugin.CONFIG_LLM_API, "")
+	_current_llm_provider = _find_provider_by_api_id(_current_api_id)
+	if _current_llm_provider == null:
+		_models_llm = null
+		_set_models_error("Configure the LLM provider in Tools → AI Assistant Settings.")
+		return
+	var new_llm: LLMInterface = _plugin.new_llm(_current_llm_provider)
+	if new_llm == null:
+		_models_llm = null
+		_set_models_error("Failed to load LLM provider. Check AI Assistant Settings.")
+		return
+	_models_llm = new_llm
+	_set_models_error("Click refresh to load models.")
+
+
+func _find_provider_by_api_id(api_id: String) -> LLMProviderResource:
+	var files := _get_all_resources("%s/llm_providers" % self.scene_file_path.get_base_dir())
+	for provider_file in files:
+		var provider = load(provider_file)
+		if provider is LLMProviderResource and provider.api_id == api_id:
+			return provider
+	return null
+
+
+func _get_base_url_for_provider(provider: LLMProviderResource) -> String:
+	if provider == null:
+		return ""
+	if not provider.fix_url.is_empty():
+		return provider.fix_url
+	var config = LLMConfigManager.new(provider.api_id)
+	return config.load_url()
+
+
+func _set_models_error(text: String) -> void:
+	models_list_error.text = text
+	models_list_error.visible = true
+	models_list.visible = false
+
+
+func _get_all_resources(path: String) -> Array[String]:
+	var file_paths: Array[String] = []
+	var dir = DirAccess.open(path)
+	if dir == null:
+		return file_paths
+	dir.list_dir_begin()
+	var file_name = dir.get_next()
+	while not file_name.is_empty():
+		if file_name.ends_with(".tres"):
+			var file_path = path + "/" + file_name
+			file_paths.append(file_path)
+		file_name = dir.get_next()
+	return file_paths

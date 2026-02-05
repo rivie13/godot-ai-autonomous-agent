@@ -15,12 +15,16 @@ const DEPRECATED_CONFIG_GEMINI_API_KEY := "plugins/ai_assistant_hub/gemini_api_k
 const DEPRECATED_CONFIG_OPENWEBUI_API_KEY := "plugins/ai_assistant_hub/openwebui_api_key"
 
 var _hub_dock: AIAssistantHub
+var _settings_window: Window
+var _use_internal_hub_dock: bool = true
 
 func _enter_tree() -> void:
 	initialize_project_settings()
-	_hub_dock = load("res://addons/ai_autonomous_agent/ai_assistant_hub.tscn").instantiate()
-	_hub_dock.initialize(self)
-	add_control_to_bottom_panel(_hub_dock, "AI Agent")
+	if _use_internal_hub_dock:
+		_hub_dock = load("res://addons/ai_autonomous_agent/ai_assistant_hub.tscn").instantiate()
+		_hub_dock.initialize(self)
+		add_control_to_bottom_panel(_hub_dock, "AI Agent")
+	add_tool_menu_item("AI Assistant Settings", Callable(self, "_open_settings_window"))
 	#add_control_to_dock(EditorPlugin.DOCK_SLOT_LEFT_UL, _hub_dock)
 
 
@@ -83,9 +87,14 @@ func initialize_project_settings() -> void:
 
 
 func _exit_tree() -> void:
-	remove_control_from_bottom_panel(_hub_dock)
+	if _use_internal_hub_dock and _hub_dock != null:
+		remove_control_from_bottom_panel(_hub_dock)
+	remove_tool_menu_item("AI Assistant Settings")
 	#remove_control_from_docks(_hub_dock)
-	_hub_dock.queue_free()
+	if _hub_dock != null:
+		_hub_dock.queue_free()
+	if _settings_window != null:
+		_settings_window.queue_free()
 
 
 ## Helper function: Add project setting
@@ -128,4 +137,40 @@ func new_llm(llm_provider: LLMProviderResource) -> LLMInterface:
 
 func get_current_llm_provider() -> LLMProviderResource:
 	return _hub_dock.get_selected_llm_resource()
+
+
+func _open_settings_window() -> void:
+	_ensure_settings_window()
+	call_deferred("_deferred_open_settings_window")
+
+
+func open_settings_window() -> void:
+	_open_settings_window()
+
+
+func _on_settings_changed() -> void:
+	if _hub_dock != null:
+		_hub_dock.refresh_settings()
+
+
+func _ensure_settings_window() -> void:
+	if _settings_window != null:
+		return
+	_settings_window = load("res://addons/ai_autonomous_agent/ai_settings_window.tscn").instantiate()
+	_settings_window.initialize(self)
+	_settings_window.settings_changed.connect(_on_settings_changed)
+	EditorInterface.get_base_control().call_deferred("add_child", _settings_window)
+
+
+func _deferred_open_settings_window() -> void:
+	if _settings_window != null:
+		_settings_window.open_window()
+
+
+func set_use_internal_hub_dock(enabled: bool) -> void:
+	_use_internal_hub_dock = enabled
+
+
+func set_external_hub_dock(hub: AIAssistantHub) -> void:
+	_hub_dock = hub
 

@@ -1,0 +1,137 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/ai_autonomous_agent/ai_settings_window.gd" id="1_eiwoq"]
+
+[node name="AISettingsWindow" type="Window"]
+visible = false
+title = "AI Assistant Settings"
+min_size = Vector2(640, 360)
+script = ExtResource("1_eiwoq")
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+
+[node name="DescriptionLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Configure local hosting, BYOK providers, or your managed service. Changes are saved automatically."
+autowrap_mode = 3
+
+[node name="GridContainer" type="GridContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 10
+
+[node name="LLMProviderLabel" type="Label" parent="MarginContainer/VBoxContainer/GridContainer"]
+layout_mode = 2
+text = "LLM Provider"
+horizontal_alignment = 2
+
+[node name="LLMProviderOption" type="OptionButton" parent="MarginContainer/VBoxContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Select the LLM provider to use"
+
+[node name="UrlLabel" type="Label" parent="MarginContainer/VBoxContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Server URL"
+horizontal_alignment = 2
+
+[node name="UrlTxt" type="LineEdit" parent="MarginContainer/VBoxContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "The URL of the host that runs your LLMs."
+placeholder_text = "e.g. http://127.0.0.1:11434"
+
+[node name="ApiKeyLabel" type="Label" parent="MarginContainer/VBoxContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "API Key"
+horizontal_alignment = 2
+
+[node name="ApiKeyContainer" type="HBoxContainer" parent="MarginContainer/VBoxContainer/GridContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="APIKeyTxt" type="LineEdit" parent="MarginContainer/VBoxContainer/GridContainer/ApiKeyContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "The API key is a password some LLM providers require."
+placeholder_text = "API key"
+secret = true
+
+[node name="GetKeyLink" type="LinkButton" parent="MarginContainer/VBoxContainer/GridContainer/ApiKeyContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+text = "Get key"
+
+[node name="Control" type="Control" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="HSeparator" type="HSeparator" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="MCPSectionLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "MCP Servers"
+theme_type_variation = &"HeaderSmall"
+
+[node name="MCPSectionDesc" type="Label" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Register MCP servers to enable additional tools. Execution will be configured later."
+autowrap_mode = 3
+
+[node name="MCPContainer" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MCPList" type="ItemList" parent="MarginContainer/VBoxContainer/MCPContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+auto_height = true
+
+[node name="MCPButtons" type="VBoxContainer" parent="MarginContainer/VBoxContainer/MCPContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="MCPAddButton" type="Button" parent="MarginContainer/VBoxContainer/MCPContainer/MCPButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add MCP"
+
+[node name="MCPRemoveButton" type="Button" parent="MarginContainer/VBoxContainer/MCPContainer/MCPButtons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Remove"
+disabled = true
+
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/GridContainer/LLMProviderOption" to="." method="_on_llm_provider_option_item_selected"]
+[connection signal="text_changed" from="MarginContainer/VBoxContainer/GridContainer/UrlTxt" to="." method="_on_settings_changed"]
+[connection signal="text_changed" from="MarginContainer/VBoxContainer/GridContainer/ApiKeyContainer/APIKeyTxt" to="." method="_on_settings_changed"]
+[connection signal="item_selected" from="MarginContainer/VBoxContainer/MCPContainer/MCPList" to="." method="_on_mcp_list_item_selected"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/MCPContainer/MCPButtons/MCPAddButton" to="." method="_on_mcp_add_button_pressed"]
+[connection signal="pressed" from="MarginContainer/VBoxContainer/MCPContainer/MCPButtons/MCPRemoveButton" to="." method="_on_mcp_remove_button_pressed"]
